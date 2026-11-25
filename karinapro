@@ -1,0 +1,49 @@
+
+# INSTALAR Y CARGAR PAQUETE
+install.packages("boot")
+library(boot)
+library(readxl)
+
+# IMPORTAR DATOS
+datos <- read_excel("Dim1.xlsx")
+
+# CONFIGURAR BOOTSTRAP
+set.seed(123)
+B <- 10000
+
+# FUNCIÓN PARA CALCULAR LA MEDIA
+media_boot <- function(data, indices) {
+  muestra <- data[indices]
+  return(mean(muestra, na.rm = TRUE))
+}
+
+# APLICAR BOOTSTRAP A CADA VARIABLE
+resultados <- data.frame()
+
+for (variable in names(datos)) {
+  
+  x <- datos[[variable]]
+  
+  boot_result <- boot(
+    data = x,
+    statistic = media_boot,
+    R = B
+  )
+  
+  # Intervalo de confianza del 95%
+  ic <- boot.ci(boot_result, type = "perc")
+  
+  resultados <- rbind(
+    resultados,
+    data.frame(
+      Variable = variable,
+      Media = mean(x, na.rm = TRUE),
+      Error_Estandar = sd(boot_result$t),
+      IC_Inferior = ic$percent[4],
+      IC_Superior = ic$percent[5]
+    )
+  )
+}
+
+# MOSTRAR RESULTADOS
+print(resultados, digits = 4)

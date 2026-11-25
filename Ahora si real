@@ -1,0 +1,177 @@
+
+# ==========================================
+# 1. INSTALAR Y CARGAR PAQUETE
+# ==========================================
+
+install.packages("readxl")
+library(readxl)
+
+# ==========================================
+# 2. IMPORTAR ARCHIVO
+# ==========================================
+
+# Comprueba que el archivo aparece en tu proyecto
+list.files()
+
+datos <- read_excel("ahoraisimportantedatos.xlsx")
+
+# Comprobar estructura
+print(names(datos))
+print(dim(datos))
+print(colSums(is.na(datos)))
+
+# ==========================================
+# 3. PREPARAR EL MODELO
+# ==========================================
+
+modelo_formula <- DEPENDIENTE ~ ET + FI + CR + SC + AM
+
+modelo <- lm(modelo_formula, data = datos)
+
+summary(modelo)
+
+coef_originales <- coef(modelo)
+
+# Matriz del modelo
+X <- model.matrix(modelo)
+y <- datos$DEPENDIENTE
+
+# ==========================================
+# 4. BOOTSTRAP: 10 000 REPETICIONES
+# ==========================================
+
+set.seed(123)
+
+B <- 10000
+n <- nrow(datos)
+
+boot_coef <- matrix(
+  NA,
+  nrow = B,
+  ncol = ncol(X)
+)
+
+colnames(boot_coef) <- colnames(X)
+
+b <- 1
+intentos <- 0
+max_intentos <- 100000
+
+while (b <= B && intentos < max_intentos) {
+
+  intentos <- intentos + 1
+
+  indices <- sample(1:n, n, replace = TRUE)
+
+  X_boot <- X[indices, , drop = FALSE]
+  y_boot <- y[indices]
+
+  # Evitar muestras con colinealidad perfecta
+  if (qr(X_boot)$rank == ncol(X_boot)) {
+
+    ajuste <- lm.fit(X_boot, y_boot)
+
+    if (all(is.finite(ajuste$coefficients))) {
+
+      boot_coef[b, ] <- ajuste$coefficients
+
+      b <- b + 1
+    }
+  }
+}
+
+if (b <= B) {
+  stop("No se consiguieron 10 000 muestras válidas.")
+}
+
+cat("Remuestreos Bootstrap válidos:", b - 1, "\n")
+
+# ==========================================
+# 5. RESULTADOS DE LOS COEFICIENTES
+# ==========================================
+
+resultados <- data.frame(
+  Variable = colnames(boot_coef),
+  Beta = coef_originales,
+  Error_Bootstrap = apply(boot_coef, 2, sd),
+  IC_Inferior = apply(
+    boot_coef, 2, quantile, probs = 0.025
+  ),
+  IC_Superior = apply(
+    boot_coef, 2, quantile, probs = 0.975
+  )
+)
+
+print(round(resultados, 4))
+
+# ==========================================
+# 6. COMPARACION ENTRE COEFICIENTES
+# ==========================================
+
+variables <- c("ET", "FI", "CR", "SC", "AM")
+
+parejas <- combn(variables, 2, simplify = FALSE)
+
+comparaciones <- data.frame()
+
+for (par in parejas) {
+
+  v1 <- par[1]
+  v2 <- par[2]
+
+  diferencia <- coef_originales[v1] -
+                coef_originales[v2]
+
+  diferencias_boot <- boot_coef[, v1] -
+                      boot_coef[, v2]
+
+  IC <- quantile(
+    diferencias_boot,
+    c(0.025, 0.975)
+  )
+
+  # Prueba Bootstrap bilateral
+  errores <- diferencias_boot - diferencia
+
+  p_boot <- (
+    sum(abs(errores) >= abs(diferencia)) + 1
+  ) / (B + 1)
+
+  comparaciones <- rbind(
+    comparaciones,
+    data.frame(
+      Comparacion = paste(v1, "-", v2),
+      Diferencia = diferencia,
+      Error_Bootstrap = sd(diferencias_boot),
+      IC_Inferior = IC[1],
+      IC_Superior = IC[2],
+      P_Valor = p_boot
+    )
+  )
+}
+
+# Correccion de Holm
+comparaciones$P_Holm <- p.adjust(
+  comparaciones$P_Valor,
+  method = "holm"
+)
+
+print(round(comparaciones, 4))
+
+# ==========================================
+# 7. EXPORTAR RESULTADOS
+# ==========================================
+
+write.csv(
+  resultados,
+  "Resultados_Bootstrap.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  comparaciones,
+  "Comparaciones_Bootstrap.csv",
+  row.names = FALSE
+)
+
+cat("ANALISIS BOOTSTRAP FINALIZADO\n")

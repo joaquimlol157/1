@@ -102,7 +102,8 @@ resultados <- data.frame(
   )
 )
 
-print(round(resultados, 4))
+resultados[, -1] <- round(resultados[, -1], 4)
+print(resultados)
 
 # ==========================================
 # 6. COMPARACION ENTRE COEFICIENTES
@@ -156,7 +157,8 @@ comparaciones$P_Holm <- p.adjust(
   method = "holm"
 )
 
-print(round(comparaciones, 4))
+comparaciones[, -1] <- round(comparaciones[, -1], 4)
+print(comparaciones)
 
 # ==========================================
 # 7. EXPORTAR RESULTADOS

@@ -1,0 +1,158 @@
+
+# ==========================================
+# 1. INSTALAR Y CARGAR PAQUETES
+# ==========================================
+
+install.packages("readxl")
+library(readxl)
+
+# ==========================================
+# 2. IMPORTAR NUEVOS DATOS
+# ==========================================
+
+datos <- read_excel("ahoraisimportantedatos.xlsx")
+
+# Verificar datos
+str(datos)
+summary(datos)
+
+# ==========================================
+# 3. REGRESION MULTIPLE
+# ==========================================
+
+modelo <- lm(
+  DEPENDIENTE ~ ET + FI + CR + SC + AM,
+  data = datos
+)
+
+summary(modelo)
+
+coef_originales <- coef(modelo)
+
+# ==========================================
+# 4. BOOTSTRAP
+# ==========================================
+
+set.seed(123)
+
+B <- 10000
+n <- nrow(datos)
+
+variables <- c("ET", "FI", "CR", "SC", "AM")
+
+boot_coef <- matrix(
+  NA,
+  nrow = B,
+  ncol = 6
+)
+
+colnames(boot_coef) <- c(
+  "(Intercept)", variables
+)
+
+b <- 1
+
+while (b <= B) {
+
+  indices <- sample(1:n, n, replace = TRUE)
+
+  muestra <- datos[indices, ]
+
+  ajuste <- lm(
+    DEPENDIENTE ~ ET + FI + CR + SC + AM,
+    data = muestra
+  )
+
+  valores <- coef(ajuste)
+
+  if (length(valores) == 6 &&
+      all(is.finite(valores))) {
+
+    boot_coef[b, ] <- valores
+    b <- b + 1
+  }
+}
+
+# ==========================================
+# 5. RESULTADOS BOOTSTRAP
+# ==========================================
+
+resultados <- data.frame(
+  Variable = colnames(boot_coef),
+  Beta = coef_originales,
+  Error_Bootstrap = apply(boot_coef, 2, sd),
+  IC_Inferior = apply(
+    boot_coef, 2, quantile, probs = 0.025
+  ),
+  IC_Superior = apply(
+    boot_coef, 2, quantile, probs = 0.975
+  )
+)
+
+print(round(resultados, 4))
+
+# ==========================================
+# 6. COMPARACION DE COEFICIENTES
+# ==========================================
+
+parejas <- combn(variables, 2, simplify = FALSE)
+
+comparaciones <- data.frame()
+
+for (par in parejas) {
+
+  v1 <- par[1]
+  v2 <- par[2]
+
+  diferencia <- coef_originales[v1] -
+                coef_originales[v2]
+
+  diferencias_boot <- boot_coef[, v1] -
+                      boot_coef[, v2]
+
+  IC <- quantile(
+    diferencias_boot,
+    probs = c(0.025, 0.975)
+  )
+
+  p_boot <- (
+    sum(abs(diferencias_boot - diferencia) >=
+    abs(diferencia)) + 1
+  ) / (B + 1)
+
+  comparaciones <- rbind(
+    comparaciones,
+    data.frame(
+      Comparacion = paste(v1, "-", v2),
+      Diferencia = diferencia,
+      Error_Bootstrap = sd(diferencias_boot),
+      IC_Inferior = IC[1],
+      IC_Superior = IC[2],
+      P_Valor = p_boot
+    )
+  )
+}
+
+# Correccion de Holm
+comparaciones$P_Holm <- p.adjust(
+  comparaciones$P_Valor,
+  method = "holm"
+)
+
+print(round(comparaciones, 4))
+
+# ==========================================
+# 7. EXPORTAR RESULTADOS
+# ==========================================
+
+write.csv(
+  resultados,
+  "Resultados_Bootstrap_Nuevos.csv",
+  row.names = FALSE
+)
+
+write.csv(
+  comparaciones,
+  "Comparacion_Bootstrap_Nuevos.csv",
+  row.names = FALSE
+)
